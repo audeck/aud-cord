@@ -76,15 +76,17 @@ async def play_next(ctx):
 
     if len(song_queue) == 0:
         await ctx.send("End of queue, probably!")
+        return
 
     next_song = song_queue.pop(0)
 
     # Download the extensive video data
-    loop = bot.loop or asyncio.get_event_loop()
-    data = await loop.run_in_executor(
-        None,
-        lambda: ytdl.extract_info(next_song['url'], download=False)
-    )
+    data = ytdl.extract_info(next_song['original_url'], download=False)
+
+    # This happens if the video is private (probably)
+    if data is None:
+        await play_next(ctx)
+        return
 
     player = await YTDLSource.from_data(data, stream=True)
 
@@ -103,20 +105,12 @@ async def on_ready():
 @bot.command(name='play', help='Plays a song')
 async def play(ctx, url: str):
     # Download the preview video data (using `process=False`)
-    loop = bot.loop or asyncio.get_event_loop()
-    data = await loop.run_in_executor(
-        None,
-        lambda: ytdl.extract_info(url, download=False, process=False)
-    )
-
+    data = ytdl.extract_info(url, download=False, process=False)
     count = 0
 
     # If we're dealing with a YT playlist
     if 'entries' in data:
         for entry in data['entries']:
-            # Happens when ytdl fails to fetch the video data (usually private videos, etc.)
-            if entry is None:
-                continue
             song_queue.append(entry)
             count += 1
     else:
