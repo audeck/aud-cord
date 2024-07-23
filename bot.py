@@ -150,7 +150,7 @@ async def stop(ctx):
 async def move(ctx, what: int, where: int):
     if what != where:
         moved = song_queue.pop(what - 1)
-        song_queue.insert(where - 2 if what < where else 1, moved)
+        song_queue.insert(where - (2 if what < where else 1), moved)
     await ctx.send(f"Moved {moved.get('title')} to [{where}].")
 
 
