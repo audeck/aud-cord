@@ -115,8 +115,6 @@ async def play(ctx, url: str, *args):
     if(is_url(url) == False):
         song_name = url + "".join(args)
         results = YoutubeSearch(song_name, max_results=1).to_dict()
-        print(results)
-        print(results[0])
         if not results:
             await ctx.send("No results found.")
             return
