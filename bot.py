@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from discord import app_commands
 import yt_dlp as youtube_dl
 import asyncio
 
@@ -81,7 +82,11 @@ async def play_next(ctx):
     next_song = song_queue.pop(0)
 
     # Download the extensive video data
-    data = ytdl.extract_info(next_song['original_url'], download=False)
+    # TODO: Sometimes the `url` key doesn't exist?
+    try:
+        data = ytdl.extract_info(next_song['url'], download=False)
+    except KeyError:
+        data = ytdl.extract_info(next_song['original_url'], download=False)
 
     # This happens if the video is private (probably)
     if data is None:
@@ -170,6 +175,8 @@ async def queue(ctx):
         await ctx.send("The song queue is empty!")
     else:
         queue_list = "\n".join(f"[{i+1}] {item.get('title')}" for i, item in enumerate(song_queue))
+        if len(queue_list) > 1900:
+            queue_list = queue_list[:1900] + "... (and more songs!)"
         await ctx.send(f"Songs in queue:\n{queue_list}")
 
 
@@ -207,6 +214,7 @@ async def np(ctx):
     await ctx.send(f'Now playing: {current_player.title}')
 
 
+
 @play.before_invoke
 async def ensure_voice(ctx):
     if ctx.voice_client is None:
@@ -218,4 +226,4 @@ async def ensure_voice(ctx):
 
 
 if __name__ == "__main__":
-    bot.run('TOKEN_HERE')
+    bot.run("TOKEN HERE")
