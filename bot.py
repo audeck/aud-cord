@@ -91,7 +91,7 @@ async def on_ready():
     print(f"Logged in as {bot.user.name}")
 
 
-def ytdl_to_song_data(ytdl_object):
+def ytdl_to_song_data(ytdl_object) -> Dict[str, str]:
     url = ytdl_object.get("original_url")
     title = ytdl_object.get("title")
 
