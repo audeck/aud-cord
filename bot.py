@@ -3,6 +3,8 @@ from discord.ext import commands
 from discord import app_commands
 import yt_dlp as youtube_dl
 import asyncio
+from urllib.parse import urlparse
+from youtube_search import YoutubeSearch
 
 # Suppress noise about console usage from errors
 youtube_dl.utils.bug_reports_message = lambda: ''
@@ -69,6 +71,10 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 song_queue = []  # List of ytdl data
 current_player: YTDLSource = None
 
+def is_url(string: str) -> bool:
+    result = urlparse(string)
+    return all([result.scheme, result.netloc])
+
 
 async def play_next(ctx):
     if ctx.voice_client.is_playing():
@@ -108,7 +114,19 @@ async def on_ready():
 
 
 @bot.command(name='play', help='Plays a song')
-async def play(ctx, url: str):
+async def play(ctx, url: str, *args):
+
+    # in case the user passed name of song instead of url
+    if(is_url(url) == False):
+        song_name = url + "".join(args)
+        results = YoutubeSearch(song_name, max_results=1).to_dict()
+        if not results:
+            await ctx.send("No results found.")
+            return
+
+        # Extract the video URL
+        url = f"https://www.youtube.com{results[0]['url_suffix']}"
+
     # Download the preview video data (using `process=False`)
     data = ytdl.extract_info(url, download=False, process=False)
     count = 0
@@ -155,7 +173,7 @@ async def stop(ctx):
 async def move(ctx, what: int, where: int):
     if what != where:
         moved = song_queue.pop(what - 1)
-        song_queue.insert(where - 2 if what < where else 1, moved)
+        song_queue.insert(where - (2 if what < where else 1), moved)
     await ctx.send(f"Moved {moved.get('title')} to [{where}].")
 
 
