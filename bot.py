@@ -1,6 +1,5 @@
 import discord
 from discord.ext import commands
-from discord import app_commands
 import yt_dlp as youtube_dl
 import asyncio
 from urllib.parse import urlparse
@@ -71,6 +70,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 song_queue = []  # List of ytdl data
 current_player: YTDLSource = None
 
+
 def is_url(string: str) -> bool:
     result = urlparse(string)
     return all([result.scheme, result.netloc])
@@ -117,7 +117,7 @@ async def on_ready():
 async def play(ctx, url: str, *args):
 
     # in case the user passed name of song instead of url
-    if(is_url(url) == False):
+    if is_url(url):
         song_name = url + "".join(args)
         results = YoutubeSearch(song_name, max_results=1).to_dict()
         if not results:
@@ -230,7 +230,6 @@ async def is_playing(ctx):
 @bot.command(name='np', help='Displays the currently playing song.')
 async def np(ctx):
     await ctx.send(f'Now playing: {current_player.title}')
-
 
 
 @play.before_invoke
