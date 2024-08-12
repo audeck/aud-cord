@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-import yt_dlp as youtube_dl
+import yt_dlp
 import asyncio
 from urllib.parse import urlparse
 from typing import Dict, List
@@ -8,7 +8,7 @@ from typing import Dict, List
 # TODO: Clean up shit code
 
 # Suppress noise about console usage from errors
-youtube_dl.utils.bug_reports_message = lambda: ""
+yt_dlp.utils.bug_reports_message = lambda: ""
 
 ytdl_format_options = {
     "format": "bestaudio/best",
@@ -22,14 +22,14 @@ ytdl_format_options = {
     "no_warnings": True,
     "default_search": "auto",
     # Bind to ipv4 since ipv6 addresses cause issues sometimes
-    "source_address": "0.0.0.0"
+    "source_address": "0.0.0.0",
 }
 
 ffmpeg_options = {
-    "options": "-vn"
+    "options": "-vn",
 }
 
-ytdl = youtube_dl.YoutubeDL(ytdl_format_options)
+ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
 
 
 class YTDLPlayer(discord.PCMVolumeTransformer):
@@ -62,8 +62,10 @@ def is_url(string: str) -> bool:
 
 async def play_next(ctx):
     if ctx.voice_client.is_playing():
-        await ctx.send("[ERR]: Called `play_next` while the client is playing; might be a timing issue?")
-        return
+        ctx.voice_client.stop()
+        return  # `voice_client` should have an `after` lambda attached already
+        # await ctx.send("[ERR]: Called `play_next` while the client is playing; might be a timing issue?")
+        # return
 
     if len(song_queue) == 0:
         await ctx.send("End of queue, probably!")
@@ -92,7 +94,9 @@ async def on_ready():
 
 
 def ytdl_to_song_data(ytdl_object) -> Dict[str, str]:
-    url = ytdl_object.get("original_url")
+    # Single videos extracted using yt-dlp contain `original_url`, while
+    # playlist videos contain `url`.
+    url = ytdl_object.get("original_url", ytdl_object.get("url"))
     title = ytdl_object.get("title")
 
     if url is None or title is None:
@@ -113,6 +117,7 @@ async def get_video_data_by_name(name: str) -> List[Dict[str, str]]:
     return [search_results["entries"][0]]
 
 
+# TODO: There are better ways of getting just the title for single videos
 async def get_video_data_by_url(url: str) -> List[Dict[str, str]]:
     # This does NOT have to be processed, as we have the original URL and
     # yt-dlp is so kind to also include the title. If we need more data in
@@ -120,8 +125,12 @@ async def get_video_data_by_url(url: str) -> List[Dict[str, str]]:
     # would be costly especially for playlists.
     data = ytdl.extract_info(url, download=False, process=False)
 
-    # data["entries"] should be a list for playlists(?)
-    return data.get("entries", [data])
+    # Should be a playlist
+    if data.get("entries") is not None:
+        # `entries` is a `YoutubeTabBaseInfoExtractor._entries` generator
+        return list(data.get("entries"))
+
+    return [data]
 
 
 @bot.command(name="play", help="Plays a song")
@@ -136,6 +145,9 @@ async def play(ctx, url: str, *args):
     count = 0
 
     for video in data:
+        print("\n")
+        print("\n")
+        print(video)
         song_data = ytdl_to_song_data(video)
         song_queue.append(song_data)
         count += 1
@@ -177,8 +189,9 @@ async def stop(ctx):
 @bot.command(name="move", help="Moves the song to the desired position in the queue.")
 async def move(ctx, what: int, where: int):
     if what != where:
-        moved = song_queue.pop(what - 1)
-        song_queue.insert(where - (2 if what < where else 1), moved)
+        # `what` and `where` are 1-based
+        moved = song_queue[what - 1]
+        song_queue.insert(where - 1, song_queue.pop(what - 1))
     await ctx.send(f"Moved {moved.get('title')} to [{where}].")
 
 
@@ -206,13 +219,11 @@ async def queue(ctx):
 
 @bot.command(name="next", help="Plays the next song.")
 async def next(ctx):
-    ctx.voice_client.stop()
     await play_next(ctx)
 
 
 @bot.command(name="skip", help="Plays the next song.")
 async def skip(ctx):
-    ctx.voice_client.stop()
     await play_next(ctx)
 
 
@@ -225,12 +236,11 @@ async def remove(ctx, index: int):
         await ctx.send(f"No song at index {index}!")
 
 
-@bot.command(name="is_playing", help="IDK")
-async def is_playing(ctx):
-    if ctx.voice_client.is_playing():
-        await ctx.send("Playing!")
-    else:
-        await ctx.send("Not playing!")
+@bot.command(name="clear", help="Clears the queue.")
+async def clear(ctx):
+    global song_queue
+    song_queue = []
+    await ctx.send("The queue has been cleared!")
 
 
 @bot.command(name="np", help="Displays the currently playing song.")
