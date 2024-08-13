@@ -3,7 +3,7 @@ from discord.ext import commands
 import yt_dlp
 import asyncio
 from urllib.parse import urlparse
-from typing import Dict, List
+from typing import Dict, List, Optional
 import lyricsgenius
 
 # TODO: Clean up shit code
@@ -34,27 +34,27 @@ ytdl = yt_dlp.YoutubeDL(ytdl_format_options)
 
 
 class YTDLPlayer(discord.PCMVolumeTransformer):
-    def __init__(self, source, *, data, song_name,volume=0.5):
+    def __init__(self, source, *, data, volume=0.5):
         super().__init__(source, volume)
 
         self.data = data
         self.title = data.get("title")
         self.url = data.get("url")
-        self.song_name = song_name
+        self.original_name = data.get("original_name")
 
     @classmethod
-    async def from_data(self, data, *, stream=False,song_name):  # data is ytdl data
+    async def from_data(self, data, *, stream=False):  # data is ytdl data
         filename = data["url"] if stream else ytdl.prepare_filename(data)
-        return self(discord.FFmpegPCMAudio(filename, **ffmpeg_options), data=data,song_name=song_name)
+        return self(discord.FFmpegPCMAudio(filename, **ffmpeg_options), data=data)
 
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="?", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 
-song_queue = []  # List of `{"url": <yt_url>, "title": <title>, "song_name": <song_name|"">}`
-current_player: YTDLPlayer = None
+song_queue = []  # List of `{"url": str, "title": str, "original_name": Optional[str]}`
+current_player: Optional[YTDLPlayer] = None
 
 lyrics_token = "Jt8q6PJwaBEU4KNPrlUoYGsnIntE30L0paNxpkecOcJv4JuyRMAdruvpAgLukcsCpyYOGeqBL7sCRQW_iVU1AQ"
 genius = lyricsgenius.Genius("your-genius-api-token")
@@ -83,7 +83,7 @@ async def play_next(ctx):
         await play_next(ctx)
         return
 
-    player = await YTDLPlayer.from_data(data, stream=True,song_name=next_song["song_name"])
+    player = await YTDLPlayer.from_data(data, stream=True)
 
     ctx.voice_client.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
     await ctx.send(f"Now playing: {player.title}")
@@ -96,47 +96,70 @@ async def play_next(ctx):
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
 
-def split_lyrics(lyrics, max_length=2000):
-    # Split the lyrics into chunks of max_length characters
+def split_message(message: str) -> List[str]:
+    MAX_LENGTH = 2000
     chunks = []
-    while len(lyrics) > max_length:
+
+    while len(message) > max_length:
         # Find the last newline before the max_length limit
-        split_index = lyrics.rfind('\n', 0, max_length)
+        split_index = message.rfind('\n', 0, max_length)
+
         if split_index == -1:  # No newline found, split at max_length
             split_index = max_length
-        chunks.append(lyrics[:split_index])
-        lyrics = lyrics[split_index:]  # Remove the split part and any leading whitespace
 
-    chunks.append(lyrics)  # Add the remaining lyrics as the last chunk
+        chunks.append(message[:split_index])
+        message = message[split_index:]  # Remove the split part and any leading whitespace
+
+    chunks.append(message)  # Add the remaining message as the last chunk
     return chunks
 
+
 @bot.command(name="lyrics_search", help="Given song name will try to print its lyrics.")
-async def display_lyrics_by_name(ctx,*args):
-    song = genius.search_song(" ".join(args))
-    if(song == None):
-        await ctx.send("I'm sorry, I could find the lyrics.\nTry different name...")
-    else:
-        chunks = split_lyrics(song.lyrics)
-        for chunk in chunks:
-            await ctx.send(chunk)
-    return
+async def get_lyrics_by_name(name: str) -> Optional[str]:
+    song = genius.search_song(name)
+
+    if song is None:
+        return None
+
+    return song.lyrics
 
 
-@bot.command(name="lyrics", help="3=========D")
-async def display_lyrics(ctx):
-    song = genius.search_song(current_player.song_name)
-    if(song == None):
+@bot.command(name="lyrics", help="Funny")
+async def get_current_lyrics() -> Optional[str]:
+    song = genius.search_song(current_player.original_name)
+
+    # Try the video title as well
+    if song is None:
         song = genius.search_song(current_player.title)
-    if(song == None):
-        await ctx.send("I'm sorry, I could find the lyrics.\nTry to search for the lyrics by name with command:\n*!lyrics_search <name of the song>*")
+
+    if song is None:
+        return None
+
+    return song.lyrics
+
+
+@bot.command(name="lyrics", help="Funny")
+async def lyrics(ctx, *args):
+    if len(args) == 0:
+        lyrics = get_current_lyrics()
+    else
+        song_name = " ".join(args)
+        lyrics = get_lyrics_by_name(song_name)
+
+    if lyrics is None:
+        await ctx.send("Unable to fetch lyrics. PEBKAC.")
+
+        if len(args) == 0:
+            await ctx.send("Try providing a song name using the same command!")
+
         return
-    chunks = split_lyrics(song.lyrics)
-    for chunk in chunks:
+
+    chunked_lyrics = split_message(lyrics)
+    for chunk in chunked_lyrics:
         await ctx.send(chunk)
 
 
-
-def ytdl_to_song_data(ytdl_object) -> Dict[str, str]:
+def ytdl_to_song_data(ytdl_object, original_name: Optional[str]) -> Dict:
     # Single videos extracted using yt-dlp contain `original_url`, while
     # playlist videos contain `url`.
     url = ytdl_object.get("original_url", ytdl_object.get("url"))
@@ -145,7 +168,7 @@ def ytdl_to_song_data(ytdl_object) -> Dict[str, str]:
     if url is None or title is None:
         raise ValueError("Cannot extract ytdl data.")
 
-    return {"url": url, "title": title}
+    return {"url": url, "title": title, "original_name": original_name}
 
 
 async def get_video_data_by_name(name: str) -> List[Dict[str, str]]:
@@ -179,21 +202,17 @@ async def get_video_data_by_url(url: str) -> List[Dict[str, str]]:
 @bot.command(name="play", help="Plays a song")
 async def play(ctx, url: str, *args):
     if not is_url(url):
-        song_name = f"{url} {' '.join(args)}"
+        original_name = f"{url} {' '.join(args)}"
         data = await get_video_data_by_name(song_name)
     else:
-        song_name = ""
+        original_name = None
         data = await get_video_data_by_url(url)
 
     title = ""
     count = 0
 
     for video in data:
-        print("\n")
-        print("\n")
-        # print(video)
-        song_data = ytdl_to_song_data(video)
-        song_data["song_name"] = song_name
+        song_data = ytdl_to_song_data(video, original_name)
         song_queue.append(song_data)
         count += 1
         title = song_data.get("title")
