@@ -314,15 +314,17 @@ class VoiceState:
                         #       it on play) would be nice.
                         print("Leaving voice channel due to inactivity...")
                         self.bot.loop.create_task(self.stop())
+                        self.current = None
 
-                try:
-                    current_player = await self.current.get_player(self._volume)
-                    self.voice.play(current_player, after=self.play_next_song)
-                    await self.current.channel.send(embed=self.current.create_embed())
-                except Exception as e:
-                    # TODO: Better video unavailable handling (catching a lot of possible exceptions here)
-                    print(e)
-                    self.play_next_song()
+                if self.current is not None:
+                    try:
+                        current_player = await self.current.get_player(self._volume)
+                        self.voice.play(current_player, after=self.play_next_song)
+                        await self.current.channel.send(embed=self.current.create_embed())
+                    except Exception as e:
+                        # TODO: Better video unavailable handling (catching a lot of possible exceptions here)
+                        print(e)
+                        self.play_next_song()
 
                 # Wait until the `after=play_next_song` sets the `self.should_play_next` flag again
                 await self.should_play_next.wait()
