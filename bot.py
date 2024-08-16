@@ -11,6 +11,7 @@ import lyricsgenius
 from discord.ext import commands
 from async_timeout import timeout
 from urllib.parse import urlparse
+import datetime
 
 from typing import Dict, List
 from dotenv import load_dotenv
@@ -18,6 +19,32 @@ from dotenv import load_dotenv
 # Suppress noise about console usage from errors
 yt_dlp.utils.bug_reports_message = lambda: ""
 
+class Timer():
+    def __init__(self):
+        self.start_date = datetime.datetime.now()
+        self.paused_date = None
+        self.is_paused = False
+
+    def pause(self):
+        if not self.is_paused:
+            self.is_paused = True
+            self.paused_date = datetime.datetime.now()
+            
+    def unpause(self):
+        if self.is_paused:
+            self.is_paused = False
+            self.start_date += datetime.datetime.now() - self.paused_date
+            self.paused_date = None
+
+    def get_time(self):
+        if self.is_paused:
+            pause_correction = (datetime.datetime.now() - self.paused_date).total_seconds()
+        else:
+            pause_correction = 0
+
+        seconds_elapsed = (datetime.datetime.now() - self.start_date).total_seconds() - pause_correction
+        return seconds_elapsed
+        
 
 class YTDLError(Exception):
     pass
@@ -62,7 +89,8 @@ class YTDLSource():
         # self.duration = self.parse_duration(int(data.get("duration")))
         # self.thumbnail = data.get("thumbnail")
         self.stream_url = None
-        self.duration = None
+        self.duration_in_seconds = None
+        self.time_elapsed_timer = None
         self.thumbnail = None
 
         self.player = None
@@ -72,7 +100,7 @@ class YTDLSource():
 
     def has_full_source(self):
         return self.stream_url is not None \
-           and self.duration is not None \
+           and self.duration_in_seconds is not None \
            and self.thumbnail is not None
 
     async def get_full_source(self, loop: asyncio.BaseEventLoop):
@@ -85,14 +113,15 @@ class YTDLSource():
 
         # Get more data
         self.stream_url = data.get("url")
-        self.duration = self.parse_duration(int(data.get("duration")))
+        self.duration_in_seconds = int(data.get("duration"))
         self.thumbnail = data.get("thumbnail")
 
     async def get_player(self, volume: float = 0.5, loop: asyncio.BaseEventLoop = None):
         loop = loop or asyncio.get_event_loop()
-
         if not self.has_full_source():
             await self.get_full_source(loop)
+
+        self.time_elapsed_timer = Timer()
 
         try:
             return discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(self.stream_url, **self.FFMPEG_OPTIONS), volume)
@@ -136,29 +165,36 @@ class YTDLSource():
             return list(data.get("entries"))
 
         return [data]
+    
+    @staticmethod
+    def format_time(time_elapsed_in_seconds: int, duration_in_seconds: int) -> str:
+        time_elapsed_minutes, time_elapsed_seconds = divmod(time_elapsed_in_seconds, 60)
+        time_elapsed_hours, time_elapsed_minutes = divmod(time_elapsed_minutes, 60)
+
+        duration_minutes, duration_seconds = divmod(duration_in_seconds, 60)
+        duration_hours, duration_minutes = divmod(duration_minutes, 60)
+
+        time_elapsed_hours = int(time_elapsed_hours)
+        time_elapsed_minutes = str(int(time_elapsed_minutes)).zfill(2)
+        time_elapsed_seconds = str(int(time_elapsed_seconds)).zfill(2)
+
+        duration_hours = int(duration_hours)
+        duration_minutes = str(int(duration_minutes)).zfill(2)
+        duration_seconds = str(int(duration_seconds)).zfill(2)
+
+        if duration_hours == 0: 
+            time_elapsed = f"{time_elapsed_minutes}:{time_elapsed_seconds}"
+            duration = f"{duration_minutes}:{duration_seconds}"
+        else:
+            time_elapsed = f"{time_elapsed_hours}:{time_elapsed_minutes}:{time_elapsed_seconds}"
+            duration = f"{duration_hours}:{duration_minutes}:{duration_seconds}"
+            
+        return f"{time_elapsed}/{duration}"
 
     @staticmethod
     def is_url(string: str) -> bool:
         result = urlparse(string)
         return all([result.scheme, result.netloc])
-
-    @staticmethod
-    def parse_duration(duration: int) -> str:
-        minutes, seconds = divmod(duration, 60)
-        hours, minutes = divmod(minutes, 60)
-        days, hours = divmod(hours, 24)
-
-        duration = []
-        if days > 0:
-            duration.append('{} days'.format(days))
-        if hours > 0:
-            duration.append('{} hours'.format(hours))
-        if minutes > 0:
-            duration.append('{} minutes'.format(minutes))
-        if seconds > 0:
-            duration.append('{} seconds'.format(seconds))
-
-        return ', '.join(duration)
 
     def create_embed(self):
         embed = discord.Embed(
@@ -170,7 +206,7 @@ class YTDLSource():
         embed.add_field(name="Requested by", value=self.requester)
 
         if self.has_full_source():
-            embed.add_field(name="Duration", value=self.duration)
+            embed.add_field(name="Duration", value=f"{self.format_time(self.time_elapsed_timer.get_time(), self.duration_in_seconds)}")
             embed.set_thumbnail(url=self.thumbnail)
 
         # Make sure the URL is always the last embed, since it looks weird otherwise
@@ -400,6 +436,7 @@ class MusicBot(commands.Cog):
 
         if ctx.voice_state.voice.is_playing():
             ctx.voice_state.voice.pause()
+            ctx.voice_state.current.time_elapsed_timer.pause()
             await ctx.respond(":pause_button: Paused... for now!")
         else:
             await ctx.respond("I'm not playing, dum dum!", ephemeral=True)
@@ -414,6 +451,7 @@ class MusicBot(commands.Cog):
 
         if ctx.voice_state.voice.is_paused():
             ctx.voice_state.voice.resume()
+            ctx.voice_state.current.time_elapsed_timer.unpause()
             await ctx.respond(":arrow_forward: Yay!")
         else:
             await ctx.respond("I'm not paused, dummy!", ephemeral=True)
