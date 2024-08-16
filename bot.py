@@ -168,11 +168,13 @@ class YTDLSource():
         )
 
         embed.add_field(name="Requested by", value=self.requester)
-        embed.add_field(name="URL", value=f"[Click]({self.url})")
 
         if self.has_full_source():
             embed.add_field(name="Duration", value=self.duration)
             embed.set_thumbnail(url=self.thumbnail)
+
+        # Make sure the URL is always the last embed, since it looks weird otherwise
+        embed.add_field(name="URL", value=f"[Click]({self.url})")
 
         return embed
 
