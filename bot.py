@@ -310,9 +310,10 @@ class VoiceState:
                             song = await self.songs.get()
                             self.current = song.source
                     except asyncio.TimeoutError:
+                        # TODO: Also cleaning up this task (and the restarting
+                        #       it on play) would be nice.
                         print("Leaving voice channel due to inactivity...")
                         self.bot.loop.create_task(self.stop())
-                        return
 
                 try:
                     current_player = await self.current.get_player(self._volume)
